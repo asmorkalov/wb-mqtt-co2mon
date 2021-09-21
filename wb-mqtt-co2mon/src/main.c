@@ -78,13 +78,14 @@ static void set_errors() {
     set_co2_error("r");
 }
 
-static void device_loop(co2mon_device dev)
+static void device_loop(co2mon_device dev, char loop_forever)
 {
     co2mon_magic_table_t magic_table = {0};
     co2mon_data_t result;
     char topic_buffer[256];
     char buffer[15];
-
+    char got_temp = 0;
+    char got_co2 = 0;
 
     if (!co2mon_send_magic_table(dev, magic_table)) {
         fprintf(stderr, "Unable to send magic table to CO2 device\n");
@@ -94,7 +95,7 @@ static void device_loop(co2mon_device dev)
 
     printf("Sending values to MQTT...\n");
 
-    while (1) {
+    while ((got_co2 && got_temp) || loop_forever) {
         int r = co2mon_read_data(dev, magic_table, result);
         if (r == LIBUSB_ERROR_NO_DEVICE) {
             fprintf(stderr, "Device has been disconnected\n");
@@ -132,6 +133,7 @@ static void device_loop(co2mon_device dev)
                 snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/temperature", location_prefix);
                 mosquitto_publish(mosq, NULL, topic_buffer, strlen(buffer), buffer, 2, true);
                 set_temp_error(0);
+                got_temp = 1;
                 break;
             case CODE_CO2:
                 if ((unsigned)w > 3000) {
@@ -142,6 +144,7 @@ static void device_loop(co2mon_device dev)
                 snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/co2", location_prefix);
                 mosquitto_publish(mosq, NULL, topic_buffer, strlen(buffer), buffer, 2, true);
                 set_co2_error(0);
+                got_co2 = 1;
                 break;
             //~ case CODE_HUMIDITY:
                 //~ if (w != 0) {
@@ -153,7 +156,7 @@ static void device_loop(co2mon_device dev)
     }
 }
 
-void monitor_loop()
+void monitor_loop(char loop_forever)
 {
     bool show_no_device = true;
     while (1) {
@@ -177,7 +180,7 @@ void monitor_loop()
 
             device_loop(dev);
 
-            co2mon_close_device(dev);
+            co2mon_close_device(dev, loop_forever);
         }
         sleep(1);
     }
@@ -212,8 +215,9 @@ int main(int argc, char *argv[])
     char * endptr = 0;
     char * host = "127.0.0.1";
     int decode_data = 1;
+    char loop_forever = 1;
 
-    while ( (c = getopt(argc, argv, "h:l:p:n")) != -1) {
+    while ( (c = getopt(argc, argv, "h:p:n:l:s")) != -1) {
         switch (c) {
         case 'p':
             tmp = strtol(optarg, &endptr, 0);
@@ -227,10 +231,14 @@ int main(int argc, char *argv[])
         case 'h':
             host = optarg;
             break;
-        case 'l':
-            location_prefix = optarg;
         case 'n':
             decode_data = 0;
+            break;
+        case 'l':
+            location_prefix = optarg;
+            break;
+        case 's':
+            loop_forever = 0;
             break;
         case '?':
             break;
@@ -238,7 +246,6 @@ int main(int argc, char *argv[])
             printf ("?? getopt returned character code 0%o ??\n", c);
         }
     }
-
 
     rc = co2mon_init(decode_data);
     if (rc < 0) {
@@ -271,7 +278,7 @@ int main(int argc, char *argv[])
     publish_mqtt_meta();
 
     mosquitto_loop_start(mosq);
-    monitor_loop();
+    monitor_loop(loop_forever);
 
     mosquitto_destroy(mosq);
     mosquitto_lib_cleanup();

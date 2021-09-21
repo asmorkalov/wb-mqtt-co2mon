@@ -95,7 +95,7 @@ static void device_loop(co2mon_device dev, char loop_forever)
 
     printf("Sending values to MQTT...\n");
 
-    while ((got_co2 && got_temp) || loop_forever) {
+    while (!got_co2 || !got_temp || loop_forever) {
         int r = co2mon_read_data(dev, magic_table, result);
         if (r == LIBUSB_ERROR_NO_DEVICE) {
             fprintf(stderr, "Device has been disconnected\n");
@@ -159,7 +159,8 @@ static void device_loop(co2mon_device dev, char loop_forever)
 void monitor_loop(char loop_forever)
 {
     bool show_no_device = true;
-    while (1) {
+    bool ready = false;
+    while (!ready || loop_forever) {
         co2mon_device dev = co2mon_open_device();
         if (dev == NULL) {
             if (show_no_device) {
@@ -178,9 +179,9 @@ void monitor_loop(char loop_forever)
                 printf("Path: (error)\n");
             }
 
-            device_loop(dev);
-
-            co2mon_close_device(dev, loop_forever);
+            device_loop(dev, loop_forever);
+            co2mon_close_device(dev);
+            ready = true;
         }
         sleep(1);
     }

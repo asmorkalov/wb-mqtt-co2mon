@@ -36,17 +36,18 @@ uint16_t co2mon_data[256];
 
 struct mosquitto *mosq = NULL;
 
+char* location_prefix = "";
+
 static double decode_temperature(uint16_t w)
 {
     return (double)w * 0.0625 - 273.15;
 }
 
 static void publish_mqtt_error(const char * control, const char * error) {
-    static char buf[100];
-    snprintf(buf, sizeof(buf), "/devices/co2mon/controls/%s/meta/error", control);
+    static char buf[256];
+    snprintf(buf, sizeof(buf), "%s/devices/co2mon/controls/%s/meta/error", location_prefix, control);
     mosquitto_publish(mosq, NULL, buf, error ? strlen(error) : 0, error, 2, true);
 }
-
 
 static void _set_control_error(const char * control, char * error_cache, const char * error) {
     if (error != NULL) {
@@ -66,6 +67,7 @@ static void set_temp_error(const char * error) {
     static char error_cache[100] = "";
     _set_control_error("temperature" , error_cache, error);
 }
+
 static void set_co2_error(const char * error) {
     static char error_cache[100] = "";
     _set_control_error("co2", error_cache, error);
@@ -80,7 +82,8 @@ static void device_loop(co2mon_device dev)
 {
     co2mon_magic_table_t magic_table = {0};
     co2mon_data_t result;
-	char buffer[15];
+    char topic_buffer[256];
+    char buffer[15];
 
 
     if (!co2mon_send_magic_table(dev, magic_table)) {
@@ -124,26 +127,28 @@ static void device_loop(co2mon_device dev)
         uint16_t w = (result[1] << 8) + result[2];
 
         switch (r0) {
-	        case CODE_TEMP:
-				snprintf(buffer, 15, "%2.1f", decode_temperature(w));
-	            mosquitto_publish(mosq, NULL, "/devices/co2mon/controls/temperature", strlen(buffer), buffer, 2, true);
+            case CODE_TEMP:
+                snprintf(buffer, 15, "%2.1f", decode_temperature(w));
+                snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/temperature", location_prefix);
+                mosquitto_publish(mosq, NULL, topic_buffer, strlen(buffer), buffer, 2, true);
                 set_temp_error(0);
-	            break;
-	        case CODE_CO2:
+                break;
+            case CODE_CO2:
                 if ((unsigned)w > 3000) {
                     // Avoid reading spurious (uninitialized?) data
                     break;
                 }
-				snprintf(buffer, 15, "%d", w);
-	            mosquitto_publish(mosq, NULL, "/devices/co2mon/controls/co2", strlen(buffer), buffer, 2, true);
+                snprintf(buffer, 15, "%d", w);
+                snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/co2", location_prefix);
+                mosquitto_publish(mosq, NULL, topic_buffer, strlen(buffer), buffer, 2, true);
                 set_co2_error(0);
-	            break;
-	        //~ case CODE_HUMIDITY:
-				//~ if (w != 0) {
-					//~ snprintf(buffer, 15, "%2.2f", ((float) w) / 10000);
-		            //~ mosquitto_publish(mosq, NULL, "/devices/co2mon/controls/humidity", strlen(buffer), buffer, 2, true);
-				//~ }
-	            //~ break;
+                break;
+            //~ case CODE_HUMIDITY:
+                //~ if (w != 0) {
+                    //~ snprintf(buffer, 15, "%2.2f", ((float) w) / 10000);
+                    //~ mosquitto_publish(mosq, NULL, "/devices/co2mon/controls/humidity", strlen(buffer), buffer, 2, true);
+                //~ }
+                //~ break;
         }
     }
 }
@@ -179,49 +184,51 @@ void monitor_loop()
     return ;
 }
 
-
 void publish_mqtt_meta()
 {
-	char* str;
+    char* str;
+    char topic_buffer[256];
 
-	str = "temperature";
-	mosquitto_publish(mosq, NULL, "/devices/co2mon/controls/temperature/meta/type", strlen(str), str , 2, true);
+    str = "temperature";
+    snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/temperature/meta/type", location_prefix);
+    mosquitto_publish(mosq, NULL, topic_buffer, strlen(str), str , 2, true);
 
-	str = "concentration";
-	mosquitto_publish(mosq, NULL, "/devices/co2mon/controls/co2/meta/type", strlen(str), str , 2, true);
+    str = "concentration";
+    snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/co2/meta/type", location_prefix);
+    mosquitto_publish(mosq, NULL, topic_buffer, strlen(str), str , 2, true);
 
-	str = "CO2 Monitor";
-	mosquitto_publish(mosq, NULL, "/devices/co2mon/meta/name", strlen(str), str , 2, true);
+    str = "CO2 Monitor";
+    snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/meta/name", location_prefix);
+    mosquitto_publish(mosq, NULL, topic_buffer, strlen(str), str , 2, true);
 }
-
-
-
 
 int main(int argc, char *argv[])
 {
     int rc;
     int c;
 
-	int port = 1883;
-	int tmp;
-	char * endptr = 0;
-	char * host = "127.0.0.1";
+    int port = 1883;
+    int tmp;
+    char * endptr = 0;
+    char * host = "127.0.0.1";
     int decode_data = 1;
 
-    while ( (c = getopt(argc, argv, "h:p:n")) != -1) {
+    while ( (c = getopt(argc, argv, "h:l:p:n")) != -1) {
         switch (c) {
         case 'p':
             tmp = strtol(optarg, &endptr, 0);
             if (*endptr == '\0') {
-				port = tmp;
-			} else {
-				fprintf(stderr, "Warning: Cannot convert -p argument to integer, ignored\n");
-			}
+                port = tmp;
+            } else {
+                fprintf(stderr, "Warning: Cannot convert -p argument to integer, ignored\n");
+            }
 
             break;
         case 'h':
             host = optarg;
             break;
+        case 'l':
+            location_prefix = optarg;
         case 'n':
             decode_data = 0;
             break;
@@ -238,37 +245,36 @@ int main(int argc, char *argv[])
         return rc;
     }
 
-	mosquitto_lib_init();
+    mosquitto_lib_init();
 
-	mosq = mosquitto_new(NULL, true, NULL);
-	if (!mosq) {
-		switch (errno) {
-			case ENOMEM:
-				fprintf(stderr, "Error: Out of memory.\n");
-				break;
-			case EINVAL:
-				fprintf(stderr, "Error: Invalid id and/or clean_session.\n");
-				break;
-		}
+    mosq = mosquitto_new(NULL, true, NULL);
+    if (!mosq) {
+        switch (errno) {
+            case ENOMEM:
+                fprintf(stderr, "Error: Out of memory.\n");
+                break;
+            case EINVAL:
+                fprintf(stderr, "Error: Invalid id and/or clean_session.\n");
+                break;
+        }
 
-		mosquitto_lib_cleanup();
-		return 1;
-	}
+        mosquitto_lib_cleanup();
+        return 1;
+    }
 
-	rc = mosquitto_connect(mosq, host, port, 5);
-	if (rc) {
-		fprintf(stderr, "Error: Cannot connect to MQTT broker\n");
-		return rc;
-	}
+    rc = mosquitto_connect(mosq, host, port, 5);
+    if (rc) {
+        fprintf(stderr, "Error: Cannot connect to MQTT broker\n");
+        return rc;
+    }
 
+    publish_mqtt_meta();
 
-	publish_mqtt_meta();
+    mosquitto_loop_start(mosq);
+    monitor_loop();
 
-	mosquitto_loop_start(mosq);
-	monitor_loop();
-
-	mosquitto_destroy(mosq);
-	mosquitto_lib_cleanup();
+    mosquitto_destroy(mosq);
+    mosquitto_lib_cleanup();
 
     co2mon_exit();
     return 0;

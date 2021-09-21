@@ -217,8 +217,9 @@ int main(int argc, char *argv[])
     char * host = "127.0.0.1";
     int decode_data = 1;
     char loop_forever = 1;
+    char send_meta = 0;
 
-    while ( (c = getopt(argc, argv, "h:p:n:l:s")) != -1) {
+    while ( (c = getopt(argc, argv, "h:p:l:nsm")) != -1) {
         switch (c) {
         case 'p':
             tmp = strtol(optarg, &endptr, 0);
@@ -241,12 +242,17 @@ int main(int argc, char *argv[])
         case 's':
             loop_forever = 0;
             break;
+        case 'm':
+            send_meta = 1;
+            break;
         case '?':
             break;
         default:
             printf ("?? getopt returned character code 0%o ??\n", c);
         }
     }
+
+    printf("Status:\nSend meta: %d\nLoop forever: %d\n", send_meta, loop_forever);
 
     rc = co2mon_init(decode_data);
     if (rc < 0) {
@@ -276,7 +282,8 @@ int main(int argc, char *argv[])
         return rc;
     }
 
-    publish_mqtt_meta();
+    if(send_meta)
+        publish_mqtt_meta();
 
     mosquitto_loop_start(mosq);
     monitor_loop(loop_forever);

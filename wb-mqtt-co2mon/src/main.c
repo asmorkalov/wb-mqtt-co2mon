@@ -36,7 +36,7 @@ uint16_t co2mon_data[256];
 
 struct mosquitto *mosq = NULL;
 
-char* location_prefix = "";
+char* location_prefix = "/devices";
 
 static double decode_temperature(uint16_t w)
 {
@@ -45,7 +45,7 @@ static double decode_temperature(uint16_t w)
 
 static void publish_mqtt_error(const char * control, const char * error) {
     static char buf[256];
-    snprintf(buf, sizeof(buf), "%s/devices/co2mon/controls/%s/meta/error", location_prefix, control);
+    snprintf(buf, sizeof(buf), "%s/co2mon/controls/%s/meta/error", location_prefix, control);
     mosquitto_publish(mosq, NULL, buf, error ? strlen(error) : 0, error, 2, true);
 }
 
@@ -130,7 +130,7 @@ static void device_loop(co2mon_device dev, char loop_forever)
         switch (r0) {
             case CODE_TEMP:
                 snprintf(buffer, 15, "%2.1f", decode_temperature(w));
-                snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/temperature", location_prefix);
+                snprintf(topic_buffer, sizeof(topic_buffer), "%s/co2mon/controls/temperature", location_prefix);
                 mosquitto_publish(mosq, NULL, topic_buffer, strlen(buffer), buffer, 2, true);
                 set_temp_error(0);
                 got_temp = 1;
@@ -141,7 +141,7 @@ static void device_loop(co2mon_device dev, char loop_forever)
                     break;
                 }
                 snprintf(buffer, 15, "%d", w);
-                snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/co2", location_prefix);
+                snprintf(topic_buffer, sizeof(topic_buffer), "%s/co2mon/controls/co2", location_prefix);
                 mosquitto_publish(mosq, NULL, topic_buffer, strlen(buffer), buffer, 2, true);
                 set_co2_error(0);
                 got_co2 = 1;
@@ -194,15 +194,15 @@ void publish_mqtt_meta()
     char topic_buffer[256];
 
     str = "temperature";
-    snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/temperature/meta/type", location_prefix);
+    snprintf(topic_buffer, sizeof(topic_buffer), "%s/co2mon/controls/temperature/meta/type", location_prefix);
     mosquitto_publish(mosq, NULL, topic_buffer, strlen(str), str , 2, true);
 
     str = "concentration";
-    snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/controls/co2/meta/type", location_prefix);
+    snprintf(topic_buffer, sizeof(topic_buffer), "%s/co2mon/controls/co2/meta/type", location_prefix);
     mosquitto_publish(mosq, NULL, topic_buffer, strlen(str), str , 2, true);
 
     str = "CO2 Monitor";
-    snprintf(topic_buffer, sizeof(topic_buffer), "%s/devices/co2mon/meta/name", location_prefix);
+    snprintf(topic_buffer, sizeof(topic_buffer), "%s/co2mon/meta/name", location_prefix);
     mosquitto_publish(mosq, NULL, topic_buffer, strlen(str), str , 2, true);
 }
 
